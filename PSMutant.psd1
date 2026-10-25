@@ -40,6 +40,7 @@
             Tags         = @('mutation-testing', 'testing', 'pester', 'ast', 'quality', 'test-quality', 'coverage')
             LicenseUri   = 'https://github.com/Fortigi/PSMutant/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/Fortigi/PSMutant'
+            Prerelease   = 'quindos1'
             ReleaseNotes = 'PSMutant 0.10.0
 
 - -ChangedLine narrows a -ChangedFile run to the lines a pull request changed.
