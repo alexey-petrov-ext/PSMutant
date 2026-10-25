@@ -16,11 +16,12 @@ change is meant for upstream, except the fork-only files listed below.
 
 | Branch | Change | Upstream issue / PR |
 |---|---|---|
-| `upstream/worker-null-stdio` | A worker process gives its standard input, output and error to the null device before a suite runs there. They are the remoting channel of its out-of-process runspace, and a child process of the code under test inherited them: a child that read its input read the channel and never ended (Git for Windows on a missing object), and one line on its error output or its output broke the runspace and stopped the run. | not opened |
-| `upstream/measured-deadline` | The deadline of a file, and of a first pass, is `max(floor, seconds x factor)`. Its seconds were measured in every worker at once, and the old `x workers` counted the load twice: with 32 workers a hung mutant waited 5.6 hours. The deadline from the solo baseline still scales with the workers. | not opened |
+| `upstream/worker-null-stdio` | A worker process gives its standard input, output and error to the null device before a suite runs there. They are the remoting channel of its out-of-process runspace, and a child process of the code under test inherited them: a child that read its input read the channel and never ended (Git for Windows on a missing object), and one line on its error output or its output broke the runspace and stopped the run. | [#309](https://github.com/Fortigi/PSMutant/issues/309) / [#311](https://github.com/Fortigi/PSMutant/pull/311) |
+| `upstream/measured-deadline` | The deadline of a file, and of a first pass, is `max(floor, seconds x factor)`. Its seconds were measured in every worker at once, and the old `x workers` counted the load twice: with 32 workers a hung mutant waited 5.6 hours. The deadline from the solo baseline still scales with the workers. | [#310](https://github.com/Fortigi/PSMutant/issues/310) / [#312](https://github.com/Fortigi/PSMutant/pull/312) |
 
-The commits on the topic branches name their upstream issue as `#309` (stdio) and `#310`
-(deadline) until the issues exist. Replace them when the issues are open.
+Each commit on a topic branch ends its subject with its upstream issue, as `(#309)`, the form
+that upstream uses. When a pull request merges, remove its branch from this table and from the
+update steps below.
 
 ### Fork-only files
 
