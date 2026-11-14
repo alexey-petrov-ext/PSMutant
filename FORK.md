@@ -75,8 +75,9 @@ src/, schemas/                 the code and the published schemas
 LICENSE, README.md
 ```
 
-A pushed tag `v*` also starts `publish.yml`, which this fork keeps as upstream has it. The fork has
-no `PSGALLERY_API_KEY` secret, so that run fails and publishes nothing to the gallery. Ignore it.
+This fork keeps `publish.yml` as upstream has it, but the workflow is disabled in the Actions
+settings of the fork, so a pushed tag `v*` starts no run. The fork also has no `PSGALLERY_API_KEY`
+secret, so a run would publish nothing to the gallery. Keep the workflow disabled.
 
 ## Checking a change
 
