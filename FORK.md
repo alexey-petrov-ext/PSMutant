@@ -16,12 +16,16 @@ change is meant for upstream, except the fork-only files listed below.
 
 | Branch | Change | Upstream issue / PR |
 |---|---|---|
-| `upstream/worker-null-stdio` | A worker process gives its standard input, output and error to the null device before a suite runs there. They are the remoting channel of its out-of-process runspace, and a child process of the code under test inherited them: a child that read its input read the channel and never ended (Git for Windows on a missing object), and one line on its error output or its output broke the runspace and stopped the run. | [#309](https://github.com/Fortigi/PSMutant/issues/309) / [#311](https://github.com/Fortigi/PSMutant/pull/311) |
-| `upstream/measured-deadline` | The deadline of a file, and of a first pass, is `max(floor, seconds x factor)`. Its seconds were measured in every worker at once, and the old `x workers` counted the load twice: with 32 workers a hung mutant waited 5.6 hours. The deadline from the solo baseline still scales with the workers. | [#310](https://github.com/Fortigi/PSMutant/issues/310) / [#312](https://github.com/Fortigi/PSMutant/pull/312) |
+| `upstream/changed-lines` | `-ChangedLine` narrows a `-ChangedFile` run to the changed lines of each named file. A mutant is kept when a named line lies between its first and its last line. A changed file without a key is mutated whole. ModuleVersion 0.10.0. Based on the tag `v0.9.2`. | Not filed yet |
 
 Each commit on a topic branch ends its subject with its upstream issue, as `(#309)`, the form
 that upstream uses. When a pull request merges, remove its branch from this table and from the
 update steps below.
+
+The two earlier topics are upstream now: `upstream/measured-deadline` merged as
+[#310](https://github.com/Fortigi/PSMutant/issues/310), and upstream fixed
+[#309](https://github.com/Fortigi/PSMutant/issues/309) with a named pipe in v0.9.2. Since
+`v0.10.0-quindos.1`, `quindos` holds neither branch.
 
 ### Fork-only files
 
@@ -37,7 +41,7 @@ git remote add upstream https://github.com/Fortigi/PSMutant.git   # once
 git fetch upstream
 old_main=$(git rev-parse main)
 git checkout main && git merge --ff-only upstream/main
-for b in upstream/worker-null-stdio upstream/measured-deadline; do
+for b in upstream/changed-lines; do
   git rebase main "$b"
 done
 git rebase --onto main "$old_main" quindos   # replays topic commits + fork-only commits
@@ -55,7 +59,7 @@ git push --force-with-lease origin main 'upstream/*' quindos
 
 ## Releases
 
-Tag `quindos` with `v<ModuleVersion>-quindos.<n>`, for example `v0.9.1-quindos.1`. Set
+Tag `quindos` with `v<ModuleVersion>-quindos.<n>`, for example `v0.10.0-quindos.1`. Set
 `Prerelease = 'quindos<n>'` in `PSMutant.psd1` in the same commit. Then:
 
 ```powershell
@@ -70,6 +74,9 @@ PSMutant.psd1, PSMutant.psm1   the module
 src/, schemas/                 the code and the published schemas
 LICENSE, README.md
 ```
+
+A pushed tag `v*` also starts `publish.yml`, which this fork keeps as upstream has it. The fork has
+no `PSGALLERY_API_KEY` secret, so that run fails and publishes nothing to the gallery. Ignore it.
 
 ## Checking a change
 
@@ -86,5 +93,9 @@ On Windows without Developer Mode, the two symlink tests of `tests/Sandbox.Tests
 "Administrator privilege required for this operation", on `main` too, and the coverage of
 `PSMutation.Sandbox.ps1` is then below 100 %. `ci.yml` runs on Linux and Windows, where they pass.
 It starts on a push to `main` only, and this fork keeps the file as upstream has it, so start it by
-hand on a topic branch: `gh workflow run ci.yml --ref upstream/<topic>`. Its Linux leg is the only
-check of the Unix half of `upstream/worker-null-stdio`.
+hand on a topic branch: `gh workflow run ci.yml --ref upstream/<topic>`.
+
+`New-PSMutantScopedConfig.ps1 -Run` copies no `workers` value, so its mutants run in the host
+process. The mutant `-gt -> -le` at `PSMutation.Runner.ps1:1595` then makes a Runner test call
+`[Environment]::Exit(3)`, and the host ends without a report. On such a run, write the scoped
+config with `workers: 3`, as `psmutant.self.config.json` has, and start `Invoke-PSMutation` on it.
