@@ -43,6 +43,8 @@
             ReleaseNotes = 'PSMutant 0.10.0
 
 - -ChangedLine narrows a -ChangedFile run to the lines a pull request changed.
+- The report says where each uncovered mutant is.
+- An argument of a parameter attribute is no longer always uncovered.
 
 Full release notes: https://github.com/Fortigi/PSMutant/releases/tag/v0.10.0'
         }

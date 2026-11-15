@@ -318,12 +318,45 @@ function Get-PSMutationFileCoveredLine {
 }
 
 function Test-PSMutantCovered {
-    # True if a candidate's line was executed by the baseline run. Pure.
+    # True if a candidate's line was executed by the baseline run, or, for a candidate inside the
+    # argument of a parameter attribute, if a line of that function's body was. Pure.
+    #
+    # The second half exists because no command spans an attribute argument, so on its own line
+    # it reads as unreached on every run: `Mandatory = $true` was an uncovered mutant no test
+    # could ever close. A body line that ran means a call got through parameter binding, which is
+    # where the attribute took effect. See Get-PSMutationParamAttributeRange.
     [OutputType([bool])]
     [CmdletBinding()]
-    param([Parameter(Mandatory)] $Candidate, [Parameter(Mandatory)] [hashtable]$CoveredLines)
+    param(
+        [Parameter(Mandatory)] $Candidate,
+        [Parameter(Mandatory)] [hashtable]$CoveredLines,
+        # From Get-PSMutationParamAttributeRange for the candidate's file; empty reads lines only.
+        [AllowEmptyCollection()] [object[]]$AttributeRanges = @()
+    )
     $f = [System.IO.Path]::GetFullPath($Candidate.File)
-    return $CoveredLines.ContainsKey($f) -and $CoveredLines[$f].Contains([int]$Candidate.Line)
+    if (-not $CoveredLines.ContainsKey($f)) { return $false }
+    $lines = $CoveredLines[$f]
+    if ($lines.Contains([int]$Candidate.Line)) { return $true }
+    foreach ($r in $AttributeRanges) {
+        # Contained, start AND end, like a loop-condition zone: the candidate is the argument or
+        # lies inside it.
+        if ($Candidate.StartOffset -ge $r.Start -and $Candidate.EndOffset -le $r.End) {
+            return Test-PSMutationAnyLineCovered -Covered $lines -Line $r.BodyLine
+        }
+    }
+    return $false
+}
+
+function Test-PSMutationAnyLineCovered {
+    # True if any of the lines is in the covered set. Pure.
+    [OutputType([bool])]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [System.Collections.Generic.HashSet[int]]$Covered,
+        [AllowNull()] [AllowEmptyCollection()] [int[]]$Line
+    )
+    foreach ($l in $Line) { if ($Covered.Contains($l)) { return $true } }
+    return $false
 }
 
 function Test-PSMutationOnChangedLine {
@@ -468,6 +501,9 @@ function Select-PSMutationCandidate {
     )
     $out = [System.Collections.Generic.List[object]]::new()
     $unchanged = [System.Collections.Generic.List[object]]::new()
+    # The candidates the coverage filter took out, CARRIED rather than only counted: a count says
+    # how much of the code no test runs, and only the rows say where it is.
+    $uncovered = [System.Collections.Generic.List[object]]::new()
     $perFile = [System.Collections.Generic.List[object]]::new()
     foreach ($file in $MutateFiles) {
         # Ignored calls are taken out AFTER numbering, like the coverage filter and for the same
@@ -482,14 +518,17 @@ function Select-PSMutationCandidate {
         # Carried, not only counted: a declared equivalent among them was not examined, and the
         # stale check must not read it as a declaration that matches no mutant.
         foreach ($c in @($called | Where-Object { -not (Test-PSMutationOnChangedLine -Candidate $_ -ChangedLines $ChangedLines) })) { $unchanged.Add($c) }
-        $kept = @($produced | Where-Object { -not $CoveredLinesOnly -or (Test-PSMutantCovered -Candidate $_ -CoveredLines $CoveredLines) })
+        $split = Split-PSMutationCandidateByCoverage -Candidates $produced -CoveredLinesOnly $CoveredLinesOnly `
+            -CoveredLines $CoveredLines -AttributeRanges (Get-PSMutationParamAttributeRange -Path $file)
+        $kept = $split.Kept
+        foreach ($c in $split.Uncovered) { $uncovered.Add($c) }
         foreach ($c in $kept) { $out.Add($c) }
         $perFile.Add([pscustomobject]@{ File = $file; Produced = $produced.Count; Kept = $kept.Count; Ignored = $all.Count - $called.Count
                 Unchanged = $called.Count - $produced.Count
                 ByOperator = (Get-PSMutationCandidateByOperator -Produced $produced -Kept $kept)
             })
     }
-    return [pscustomobject]@{ Candidates = $out.ToArray(); PerFile = $perFile.ToArray(); Unchanged = $unchanged.ToArray() }
+    return [pscustomobject]@{ Candidates = $out.ToArray(); PerFile = $perFile.ToArray(); Unchanged = $unchanged.ToArray(); Uncovered = $uncovered.ToArray() }
 }
 
 function ConvertTo-PSMutationUnexaminedRow {
@@ -508,6 +547,59 @@ function ConvertTo-PSMutationUnexaminedRow {
                 Function    = $_.Function
                 Line        = $_.Line
                 Description = $_.Description
+            }
+        })
+}
+
+function Split-PSMutationCandidateByCoverage {
+    <#
+    .SYNOPSIS
+        One file's candidates, sent to Kept or to Uncovered by the covered-lines filter. Pure.
+    .DESCRIPTION
+        ONE decision per candidate, sending it to one list or the other. Two passes over the
+        predicate would be two answers, and a candidate both kept and listed as uncovered is a
+        contradiction the report would publish. With the filter off, every candidate is kept.
+    #>
+    [OutputType([pscustomobject])]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Candidates,
+        [bool]$CoveredLinesOnly,
+        $CoveredLines,
+        # From Get-PSMutationParamAttributeRange for the file the candidates come from.
+        [AllowEmptyCollection()] [object[]]$AttributeRanges = @()
+    )
+    $kept = [System.Collections.Generic.List[object]]::new()
+    $uncovered = [System.Collections.Generic.List[object]]::new()
+    foreach ($c in $Candidates) {
+        if (-not $CoveredLinesOnly -or (Test-PSMutantCovered -Candidate $c -CoveredLines $CoveredLines -AttributeRanges $AttributeRanges)) { $kept.Add($c) }
+        else { $uncovered.Add($c) }
+    }
+    return [pscustomobject]@{ Kept = $kept.ToArray(); Uncovered = $uncovered.ToArray() }
+}
+
+function ConvertTo-PSMutationUncoveredRow {
+    <#
+    .SYNOPSIS
+        The candidates the coverage filter removed, in the shape of a report row without a verdict. Pure.
+    .DESCRIPTION
+        The fields of a mutant row up to its Status, and spelled the same, so a consumer that reads
+        `mutants` reads these with the same code. No Status and no KilledBy: nothing ran, so there
+        is nothing to report about either.
+
+        The file is converted to the path the report names, for the reason
+        ConvertTo-PSMutationDisplayPerFile gives: the sandbox path is deleted before anyone reads it.
+    #>
+    [OutputType([object[]])]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Candidates,
+        [Parameter(Mandatory)] [string]$SandboxRoot
+    )
+    return , @(foreach ($c in $Candidates) {
+            [pscustomobject]@{
+                Id = $c.Id; Function = $c.Function; File = (ConvertFrom-PSMutationSandboxPath -Path $c.File -SandboxRoot $SandboxRoot)
+                Line = $c.Line; Operator = $c.Operator; Description = $c.Description
             }
         })
 }
