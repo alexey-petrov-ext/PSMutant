@@ -17,6 +17,7 @@ change is meant for upstream, except the fork-only files listed below.
 | Branch | Change | Upstream issue / PR |
 |---|---|---|
 | `upstream/changed-lines` | `-ChangedLine` narrows a `-ChangedFile` run to the changed lines of each named file. A mutant is kept when a named line lies between its first and its last line. A changed file without a key is mutated whole. ModuleVersion 0.10.0. Based on the tag `v0.9.2`. | Not filed yet |
+| `upstream/uncovered-mutants` | The full report lists each mutant the covered-lines filter removed in `uncoveredMutants`, with its file and line. An argument of a parameter attribute, such as `Mandatory = $true`, counts as covered when a line of its function's body ran. ModuleVersion 0.10.0. Based on `main` at `240b644` (0.9.3, not yet released upstream). | Not filed yet |
 
 Each commit on a topic branch ends its subject with its upstream issue, as `(#309)`, the form
 that upstream uses. When a pull request merges, remove its branch from this table and from the
@@ -41,7 +42,7 @@ git remote add upstream https://github.com/Fortigi/PSMutant.git   # once
 git fetch upstream
 old_main=$(git rev-parse main)
 git checkout main && git merge --ff-only upstream/main
-for b in upstream/changed-lines; do
+for b in upstream/changed-lines upstream/uncovered-mutants; do
   git rebase main "$b"
 done
 git rebase --onto main "$old_main" quindos   # replays topic commits + fork-only commits
