@@ -48,6 +48,7 @@
 - An argument of a parameter attribute is no longer always uncovered.
 - A suite that fails only in a worker, with no failed test, is refused with what failed.
 - A kill that no test made says what failed.
+- A worker process that ends no longer stops the run.
 
 Full release notes: https://github.com/Fortigi/PSMutant/releases/tag/v0.10.0'
         }
