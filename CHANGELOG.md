@@ -10,6 +10,12 @@ failure occurs only in a worker. The refusal now gives one line of what Pester r
 failed block or test file, such as `Add-One: The process cannot access the file 'session.jsonl'
 because it is being used by another process.`
 
+**A suite that fails only in a worker gives the error of each failed test.** The refusal named the
+failed tests without their errors, which the baseline refusal gives. Such a failure does not occur
+when the file runs alone, so a run that failed in this way once did not show its cause. Each name
+now has the first line of the test's error after it, as in the baseline refusal:
+`Failed: Add-One.adds -- Expected 2, but got 3.`
+
 **A kill that no test made says what failed.** Such a mutant is still `Killed` with an empty
 `KilledBy`. Its row now also carries `KilledByError`, with the same lines, so a teardown that fails
 for a reason of its own can be told from a kill by a test. The field is only on such a row and is

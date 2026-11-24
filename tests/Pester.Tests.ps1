@@ -527,6 +527,19 @@ Describe 'fixture' {
             Should-Be "d: block teardown|d: block setup|${name}: file teardown"
     }
 
+    It 'answers each failed test with the whole message of its first error (#329)' {
+        # A suite that fails only in a worker passes when its file runs alone, so this message is
+        # what the refusal can say. A test whose AfterEach fails too carries a second error, which is
+        # left out.
+        $fixture = Join-Path $TestDrive "killer-$([System.Guid]::NewGuid().ToString('N')).Tests.ps1"
+        "Describe 'd' { It 'one' { throw ""first``nsecond"" }; Context 'c' { AfterEach { throw 'after' }; It 'two' { throw 'only' } } }" |
+            Set-Content -LiteralPath $fixture -Encoding utf8
+
+        $out = & (Get-PSMutationWarmPesterScript) -tests @($fixture) -recordAllKillers $true -sandboxRoot $TestDrive
+
+        (@($out.KillerError | ForEach-Object { "$($_.Name)=$($_.Message)" }) -join '|') | Should-Be "one=first`nsecond|two=only"
+    }
+
     It 'answers Passed having run NO test when a file''s discovery is ended (#251)' {
         # What a mutant that reaches `exit` while a test file loads looks like: Pester calls the
         # run Passed, and only the count says nothing was asked.
