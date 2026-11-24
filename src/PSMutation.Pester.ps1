@@ -703,6 +703,16 @@ function Invoke-PSMutationChild {
         $c.Run.SkipRemainingOnFailure = 'Run'
     }
     $r = Invoke-Pester -Configuration $c
+    # The message of the first error of each failed test, beside its name (#329): a suite that fails
+    # only in a worker passes when its file runs alone, so the refusal has nothing else to say why.
+    # Whole, as Errors are, because the runner picks the line. A test that carries no error gives an
+    # empty message. Defined in here, because only this function's text reaches a worker, and a
+    # function of its own, for the complexity ceiling.
+    function Get-KillerError($Failed) {
+        foreach ($t in $Failed) {
+            [pscustomobject]@{ Name = $t.ExpandedName; Message = [string]@($t.ErrorRecord | Select-Object -First 1).Exception.Message }
+        }
+    }
     # ExpandedName, not Name: a -ForEach case is one name and many tests, and a killer nobody
     # can tell apart from its siblings is not an answer to "which test killed this".
     #
@@ -720,6 +730,7 @@ function Invoke-PSMutationChild {
     [pscustomobject]@{
         Result = [string]$r.Result; Ran = $r.PassedCount + $r.FailedCount
         Killers = @(foreach ($t in $r.Failed) { $t.ExpandedName })
+        KillerError = @(Get-KillerError -Failed $r.Failed)
         FailedPath = @(@(foreach ($t in $r.Failed) { $t.Path -join '.' }) | Select-Object -Unique)
         PassedPath = @(@(foreach ($t in $r.Passed) { $t.Path -join '.' }) | Select-Object -Unique)
         # What failed outside the tests (#329). An AfterAll, or Pester's own removal of TestDrive at

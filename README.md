@@ -497,7 +497,8 @@ above it.
    Before the first mutant, each covering suite runs once, unmutated, where the mutants will
    run: a fresh runspace per worker that has only Pester, not your session's modules, global
    functions or preferences. A suite green in your session but not there is refused, named with
-   its failing tests, because every mutant would otherwise be scored Killed by that failure. When
+   its failing tests and the first line of each one's error, because every mutant would otherwise
+   be scored Killed by that failure. When
    no test failed, the refusal gives what Pester reported instead: a failed `AfterAll`, or a
    TestDrive that Pester could not remove because a file in it was still open. A suite that runs
    no test there, every test skipped or never discovered, is refused too: it can say nothing about

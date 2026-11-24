@@ -178,6 +178,19 @@ Describe 'the child a worker runs' {
             Should-Be 'Failed|0|d: block teardown failed|teardown.Tests.ps1: file teardown failed'
     }
 
+    It 'returns each failed test with the first line of its error (#329)' {
+        # What the refusal of a suite that fails only in a worker gives. The message crosses from the
+        # worker whole, and the line is picked here.
+        $failing = Join-Path $script:proj 'failing.Tests.ps1'
+        "Describe 'd' { It 'fails' { throw ""``nwhy it failed``nmore"" } }" | Set-Content $failing -Encoding utf8
+        $job = Start-PSMutantEvaluation -Candidate $script:cand -Source $script:cand -Index 0 `
+            -MutatedContent $script:original -OriginalContent $script:original `
+            -CoveringTests @($failing) -WorkerId 0 -SandboxRoot $TestDrive
+        $null = $job.Async.AsyncWaitHandle.WaitOne([timespan]::FromSeconds(30))
+        $run = Receive-PSMutationJob -Job $job
+        "$($run.Result)|$($run.Killers -join '|')|$($run.KillerReason -join '|')" | Should-Be 'Failed|fails|fails -- why it failed'
+    }
+
     It 'imports the Pester it is handed, not whatever the runspace resolves' {
         # A fresh runspace resolves "Pester" by NAME and gets the newest installed,
         # which need not be the version this process loaded; assemblies are per-process

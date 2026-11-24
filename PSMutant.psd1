@@ -47,6 +47,7 @@
 - The report says where each uncovered mutant is.
 - An argument of a parameter attribute is no longer always uncovered.
 - A suite that fails only in a worker, with no failed test, is refused with what failed.
+- A suite that fails only in a worker gives the error of each failed test.
 - A kill that no test made says what failed.
 - A worker process that ends, or that starts without a debugger, no longer stops the run.
 

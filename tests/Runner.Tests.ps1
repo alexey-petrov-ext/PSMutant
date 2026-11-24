@@ -1159,6 +1159,33 @@ Describe 'Get-PSMutationOutsideTestError' {
     }
 }
 
+Describe 'Get-PSMutationKillerReason' {
+    It 'gives each failed test with the first line of its error that is not blank, in the order of the run' {
+        # The worker refusal reads as the baseline refusal does. A CRLF message would otherwise keep a
+        # carriage return in the middle of the one line of the refusal.
+        $lines = Get-PSMutationKillerReason -KillerError @(
+            [pscustomobject]@{ Name = 'B.second'; Message = "`r`n   `r`n  Expected 1, but got 2.  `r`nat <ScriptBlock>" }
+            [pscustomobject]@{ Name = 'A.first'; Message = 'locked' }
+        )
+        ($lines -join '|') | Should-Be 'B.second -- Expected 1, but got 2.|A.first -- locked'
+    }
+
+    It 'gives the name alone when the error has no line to show' {
+        # "A.one -- " would read as a reason that was lost.
+        $lines = Get-PSMutationKillerReason -KillerError @(
+            [pscustomobject]@{ Name = 'A.empty'; Message = '' }
+            [pscustomobject]@{ Name = 'A.blank'; Message = "  `n " }
+            [pscustomobject]@{ Name = 'A.null'; Message = $null }
+        )
+        ($lines -join '|') | Should-Be 'A.empty|A.blank|A.null'
+    }
+
+    It 'gives nothing for a run that returned no failed test' {
+        # A stub returns no KillerError at all.
+        @(Get-PSMutationKillerReason -KillerError $null).Count | Should-Be 0
+    }
+}
+
 Describe 'New-PSMutationResultRow' {
     BeforeAll {
         $script:rowCandidate = [pscustomobject]@{ Id = 3; Function = 'F'; Line = 2; Operator = 'BinaryOperator'; Description = '-gt -> -le' }
@@ -2239,7 +2266,7 @@ Describe 'Get-PSMutationWorkerGreenFault' {
     }
 
     It 'names the suite, the worker and the failed tests, and what may differ between the two' {
-        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; Killers = @('A.one', 'A.two') }) `
+        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; KillerReason = @('A.one', 'A.two') }) `
             -Suite @('tests/a.Tests.ps1', 'tests/b.Tests.ps1') -WorkerId 2 -TimeoutSeconds 5
         # Anchored at both ends, so a broken concatenation -- which QUOTES the text so far -- cannot match.
         $f | Should-BeLikeString 'The covering suite passed the baseline but fails in a worker*'
@@ -2250,7 +2277,7 @@ Describe 'Get-PSMutationWorkerGreenFault' {
 
     It 'caps the names at ten and counts the rest' {
         $eleven = @(1..11 | ForEach-Object { "T.$_" })
-        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; Killers = $eleven }) `
+        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; KillerReason = $eleven }) `
             -Suite @('a.Tests.ps1') -WorkerId 0 -TimeoutSeconds 5
         $f | Should-BeLikeString '*Failed: T.1; T.2; T.3; T.4; T.5; T.6; T.7; T.8; T.9; T.10 (and 1 more). Both*'
     }
@@ -2258,7 +2285,7 @@ Describe 'Get-PSMutationWorkerGreenFault' {
     It 'names exactly ten without counting a remainder' {
         # The boundary: ten names is the cap, not past it.
         $ten = @(1..10 | ForEach-Object { "T.$_" })
-        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; Killers = $ten }) `
+        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; KillerReason = $ten }) `
             -Suite @('a.Tests.ps1') -WorkerId 0 -TimeoutSeconds 5
         $f | Should-BeLikeString '*Failed: T.1;*; T.10. Both*'
         $f | Should-NotBeLikeString '*more)*'
@@ -2295,9 +2322,17 @@ Describe 'Get-PSMutationWorkerGreenFault' {
     It 'names a failed test, and not the error of its block' {
         # Pester 6.1.0 replaces the error of a failed BeforeAll, which fails its tests, with the text
         # of its own guard for break and continue.
-        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; Killers = @('A.one'); Errors = @('A: guard text') }) `
+        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; KillerReason = @('A.one'); Errors = @('A: guard text') }) `
             -Suite @('a.Tests.ps1') -WorkerId 0 -TimeoutSeconds 5
         $f | Should-BeLikeString '*in worker 0. Failed: A.one. Both are clean runspaces*'
+    }
+
+    It 'gives the error of each failed test, with one full stop after the last (#329)' {
+        # The file run alone in a new session passes when the failure is the worker's own, so the
+        # error is the one clue. Measured on Pester 6: an assertion message ends with a full stop.
+        $f = Get-PSMutationWorkerGreenFault -Run ([pscustomobject]@{ Result = 'Failed'; KillerReason = @('A.one -- locked', 'A.two -- Expected 1, but got 2.') }) `
+            -Suite @('a.Tests.ps1') -WorkerId 0 -TimeoutSeconds 5
+        $f | Should-BeLikeString '*in worker 0. Failed: A.one -- locked; A.two -- Expected 1, but got 2. Both are clean runspaces*'
     }
 
     It 'says an unmutated suite that ended its worker process would kill every mutant (#256)' {
@@ -2350,10 +2385,11 @@ Describe 'the unmutated suite, in every worker, before any mutant' {
 
     It 'refuses a suite red in the PRIMARY worker, naming it and the failed tests' {
         Mock Get-PSMutationWarmPesterScript {
-            'param($tests, $recordAllKillers) [pscustomobject]@{ Result = ($tests -like "*primary*b.Tests.ps1") ? "Failed" : "Passed"; Ran = 1; Killers = @("B.needs the session") }'
+            'param($tests, $recordAllKillers) [pscustomobject]@{ Result = ($tests -like "*primary*b.Tests.ps1") ? "Failed" : "Passed"; Ran = 1; KillerError = @([pscustomobject]@{ Name = "B.needs the session"; Message = "`nExpected 1, but got 2.`nat <ScriptBlock>" }) }'
         }
         # Relative to the source root, as the report names files -- not the temp sandbox path.
-        { Invoke-GreenForTest } | Should-Throw -ExceptionMessage '*runs: tests/b.Tests.ps1 in worker 0. Failed: B.needs the session.*'
+        # With the first line of its error, which the worker hands back whole (#329).
+        { Invoke-GreenForTest } | Should-Throw -ExceptionMessage '*runs: tests/b.Tests.ps1 in worker 0. Failed: B.needs the session -- Expected 1, but got 2. Both*'
     }
 
     It 'refuses a suite red only in ANOTHER worker''s sandbox, after a worker where it passed' {
@@ -2361,7 +2397,7 @@ Describe 'the unmutated suite, in every worker, before any mutant' {
         # fault comes from the SECOND job, after a passing first -- so the first fault is found
         # past the empty answer a green worker gives.
         Mock Get-PSMutationWarmPesterScript {
-            'param($tests, $recordAllKillers) [pscustomobject]@{ Result = ($tests -like "*second*a.Tests.ps1") ? "Failed" : "Passed"; Ran = 1; Killers = @("A.copy") }'
+            'param($tests, $recordAllKillers) [pscustomobject]@{ Result = ($tests -like "*second*a.Tests.ps1") ? "Failed" : "Passed"; Ran = 1; KillerError = @([pscustomobject]@{ Name = "A.copy"; Message = "" }) }'
         }
         # Named as the PRIMARY copy is: which sandbox a worker ran is scheduling, and the worker
         # number says it.
@@ -2377,7 +2413,7 @@ Describe 'the unmutated suite, in every worker, before any mutant' {
 
     It 'asks for EVERY failing test, not the first' {
         # Paid once per run, and read by a person who has to act on it.
-        Mock Get-PSMutationWarmPesterScript { 'param($tests, $recordAllKillers) [pscustomobject]@{ Result = "Failed"; Killers = @("all=$recordAllKillers") }' }
+        Mock Get-PSMutationWarmPesterScript { 'param($tests, $recordAllKillers) [pscustomobject]@{ Result = "Failed"; KillerError = @([pscustomobject]@{ Name = "all=$recordAllKillers"; Message = "" }) }' }
         { Invoke-GreenForTest -OneWorker } | Should-Throw -ExceptionMessage '*Failed: all=True.*'
     }
 

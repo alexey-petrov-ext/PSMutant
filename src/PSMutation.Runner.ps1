@@ -187,11 +187,18 @@ function Get-PSMutationFailedTestReason {
     [OutputType([string])]
     [CmdletBinding()]
     param([Parameter(Mandatory)] $Test)
-    foreach ($record in @($Test.ErrorRecord)) {
-        foreach ($line in ([string]$record.Exception.Message -split "\r?\n")) {
-            if (-not [string]::IsNullOrWhiteSpace($line)) { return $line.Trim() }
-        }
-        return ''
+    foreach ($record in @($Test.ErrorRecord)) { return Get-PSMutationFirstLine -Message $record.Exception.Message }
+    return ''
+}
+
+function Get-PSMutationFirstLine {
+    # The first line of a message that is not blank, trimmed, or '' when it has none. Pure. Why the
+    # first such line is the reason, and why on \r?\n, is in Get-PSMutationFailedTestReason.
+    [OutputType([string])]
+    [CmdletBinding()]
+    param([AllowNull()] [AllowEmptyString()] [string]$Message)
+    foreach ($line in ($Message -split "\r?\n")) {
+        if (-not [string]::IsNullOrWhiteSpace($line)) { return $line.Trim() }
     }
     return ''
 }
@@ -749,6 +756,27 @@ function Receive-PSMutationJob {
         Result = $outcome; Ran = [int]$result.Ran; Killers = @($result.Killers)
         FailedPath = @($result.FailedPath); PassedPath = @($result.PassedPath)
         Errors = @(Get-PSMutationOutsideTestError -Errors $result.Errors)
+        KillerReason = @(Get-PSMutationKillerReason -KillerError $result.KillerError)
+    }
+}
+
+function Get-PSMutationKillerReason {
+    <#
+    .SYNOPSIS
+        Each failed test of a run, with the first line of its error, as the baseline guard names them. Pure.
+    .DESCRIPTION
+        'Name -- reason', or the name alone when the error gives no line, so no reason reads as one
+        that was lost. The child hands back the whole message of the first error of each failed test.
+
+        Walked with a foreach statement, which iterates zero times over $null: a stub returns no
+        KillerError at all.
+    #>
+    [OutputType([string])]
+    [CmdletBinding()]
+    param($KillerError)
+    foreach ($k in $KillerError) {
+        $why = Get-PSMutationFirstLine -Message $k.Message
+        $why ? "$($k.Name) -- $why" : [string]$k.Name
     }
 }
 
@@ -1735,12 +1763,15 @@ function Get-PSMutationWorkerGreenFault {
     # such as a TestDrive it could not remove -- not in a BeforeAll, which fails its tests. Pester
     # keeps that error on the block or on the file, and it is the one clue: the file run alone in a
     # new session passes when what failed differs between the two.
-    $named = @($Run.Killers)
+    #
+    # Each failed test with the first line of its error: the file run alone passes when the failure
+    # is the worker's own, so the error is the one clue there too.
+    $named = @(foreach ($k in $Run.KillerReason) { $k })
     $outside = @(foreach ($e in $Run.Errors) { $e })
     $failed = ' No test failed, and Pester reported no error of a block or a test file: run the file alone in a new session to see it.'
     # An error that ends its own sentence keeps one full stop, not two.
     if ($outside.Count -gt 0) { $failed = " No test failed, but Pester reported: $((Join-PSMutationCappedList -Item $outside).TrimEnd('.'))." }
-    if ($named.Count -gt 0) { $failed = " Failed: $(Join-PSMutationCappedList -Item $named)." }
+    if ($named.Count -gt 0) { $failed = " Failed: $((Join-PSMutationCappedList -Item $named).TrimEnd('.'))." }
     return ("The covering suite passed the baseline but fails in a worker, which is where every mutant runs: $where.$failed " +
         'Both are clean runspaces, so it depends on something that differs between them -- most often the sandbox: ' +
         'a worker runs its own copy, so an absolute path into another copy, or a port or file another worker holds, ' +
